@@ -1,132 +1,68 @@
-import { TagIndexService } from '../library/tag-index.service';
-import { LoggingService } from '../library/logging-service';
-import { Settings } from '../library/settings';
-import { SettingsPage } from '../pages/settings/settings';
-import { LogsPage } from '../pages/logs/logs';
-import { Component, ViewChild } from '@angular/core';
-import { MenuController, NavController, Platform } from 'ionic-angular';
-import { StatusBar, Splashscreen } from 'ionic-native';
+import { Component } from '@angular/core';
 
-import { WikiPage } from '../pages/wiki/wiki';
-declare var cordova: any;
+import { Platform } from '@ionic/angular';
+import { SplashScreen } from '@ionic-native/splash-screen/ngx';
+import { StatusBar } from '@ionic-native/status-bar/ngx';
+import { Settings } from './library/settings';
+import { TagIndexService } from './library/tag-index.service';
+import { AppMinimize } from '@ionic-native/app-minimize/ngx';
+import { PubSubService } from './library/pub-sub.service';
 
 @Component({
-    templateUrl: 'app.html'
+    selector: 'app-root',
+    templateUrl: 'app.component.html'
 })
-export class MyApp {
-    rootPage: any;
-    @ViewChild("navController") navController: NavController;
-    styleGrey: boolean;
-    static instance: MyApp;
+export class AppComponent {
 
-    private unregisterBackButtonAction: Function;
+    static instance: AppComponent;
+
+    get themeBlue() { return this.theme === 'Blue'; }
+    get themeDark() { return this.theme === 'Dark'; }
+    get themeWood() { return this.theme === 'Wood'; }
+
+    private theme = 'Blue';
 
     constructor(
         private platform: Platform,
+        private pubsubService: PubSubService,
+        private appMinimize: AppMinimize,
+        private splashScreen: SplashScreen,
+        private statusBar: StatusBar,
         private settings: Settings,
-        private loggingService: LoggingService,
-        private tagIndexService: TagIndexService,
-        private menu: MenuController) {
-
-        platform.ready().then(() => {
-            StatusBar.styleDefault();
-
-            settings.waitForInitialize().then(() => {
-                this.rootPage = WikiPage;
-                this.reloadStyle();
-                setTimeout(() => Splashscreen.hide(), 100);
-
-                //prevent app going to sleep
-                if (cordova && cordova.plugins && cordova.plugins.backgroundMode) {
-                    // Called when background mode has been activated
-                    cordova.plugins.backgroundMode.onactivate = () => {
-                        cordova.plugins.backgroundMode.configure({
-                            silent: true
-                        });
-                    }
-                }
-                this.configureBackgroundMode();
-            });
-
-            platform.pause.subscribe(() => this.unregisterBackButton());
-            platform.resume.subscribe(() => this.registerBackButton());
-
-            this.registerBackButton();
-
-            //build initial index if needed, don't wait for it.
-            this.tagIndexService.buildInitialIndex();
-        });
-
-        MyApp.instance = this;
+        private tagIndexService: TagIndexService) {
+        AppComponent.instance = this;
+        this.initializeApp();
     }
 
-    private registerBackButton() {
-        this.unregisterBackButton(); //remove any previous handlers
-        this.unregisterBackButtonAction = this.platform.registerBackButtonAction(() => this.onBackButton(), Number.MAX_VALUE);
-    }
+    async initializeApp() {
+        await this.platform.ready();
+        this.platform.backButton.subscribe(() => this.onBackButton());
 
-    private unregisterBackButton() {
-        if (this.unregisterBackButtonAction) {
-            try {
-                this.unregisterBackButtonAction();
-            } catch (err) {
-                //whatever
-            }
-            this.unregisterBackButtonAction = null;
-        }
+        this.statusBar.overlaysWebView(false);
+        await this.settings.waitForInitialize();
+
+        this.theme = this.settings.getStyle();
+
+        // build initial index if needed, don't wait for it.
+        this.tagIndexService.buildInitialIndex();
+
+        setTimeout(() => this.splashScreen.hide(), 500);
     }
 
     private onBackButton() {
-        try {
-            if (this.menu.isOpen()) {
-                this.menu.close();
-            } else {
-                var activePage = this.navController.getActive();
-                if (activePage.instance.onBackButton) {
-                    activePage.instance.onBackButton();
-                } else {
-                    this.navController.pop();
-                }
-            }
-        } catch (err) {
-            this.loggingService.log("Error onBackButton", err);
-        }
+        this.pubsubService.publish('back');
     }
 
-    reloadStyle() {
-        this.styleGrey = this.settings.getStyle() === "Grey";
-    }
-
-    configureBackgroundMode() {
-        if (cordova && cordova.plugins && cordova.plugins.backgroundMode) {
-            if (this.settings.getStayActiveInBackground()) {
-                cordova.plugins.backgroundMode.enable();
-            } else {
-                cordova.plugins.backgroundMode.disable();
-            }
-        }
-    }
-
-    showLogs() {
-        this.navController.push(LogsPage);
-    }
-
-    showSettings() {
-        this.navController.push(SettingsPage);
+    startSync() {
+        this.pubsubService.publish('sync');
     }
 
     exit() {
-        this.platform.exitApp();
+        // tslint:disable-next-line: no-string-literal
+        navigator['app'].exitApp();
     }
 
     minimize() {
-        this.unregisterBackButton(); //otherwise resuming will have an unresponsive backbutton
-        var w: any = window;
-        if (w && w.plugins && w.plugins.appMinimize && w.plugins.appMinimize.minimize) {
-            w.plugins.appMinimize.minimize();
-        } else {
-            this.exit();
-        }
+        this.appMinimize.minimize();
     }
-
 }
